@@ -1,9 +1,24 @@
 import os
 import logging
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
+# Render Web Service-কে জাগিয়ে রাখার জন্য ছোট HTTP Server
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
+
+# Logging সেটিং
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -19,7 +34,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     ydl_opts = {
         'format': 'best',
         'outtmpl': 'downloaded_video.%(ext)s',
-        'max_filesize': 50 * 1024 * 1024,  # 50 MB Telegram limit
+        'max_filesize': 50 * 1024 * 1024,  # 50 MB
     }
 
     filename = None
@@ -48,11 +63,15 @@ def main():
     if not token:
         raise ValueError("BOT_TOKEN পাওয়া যায়নি!")
 
+    # ব্যাকগ্রাউন্ডে HTTP Health Check সার্ভার চালুকরণ
+    Thread(target=run_health_check_server, daemon=True).start()
+
+    # বট স্টার্ট
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
 
-    print("Bot run হচ্ছে...")
+    print("Bot is running as Web Service...")
     application.run_polling()
 
 if __name__ == '__main__':
